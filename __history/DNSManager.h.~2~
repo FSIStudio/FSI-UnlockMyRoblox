@@ -1,0 +1,99 @@
+//---------------------------------------------------------------------------
+#ifndef DNSManagerH
+#define DNSManagerH
+//---------------------------------------------------------------------------
+#include <System.hpp>
+#include <windows.h>
+#include <iphlpapi.h>
+
+class DNSManager {
+public:
+    // Проверяет установлен ли Google DNS (8.8.8.8)
+    static bool IsGoogleDNSSet() {
+        ULONG bufferSize = 15000;
+        PIP_ADAPTER_INFO adapterInfo = (PIP_ADAPTER_INFO)malloc(bufferSize);
+
+        if (GetAdaptersInfo(adapterInfo, &bufferSize) == ERROR_SUCCESS) {
+            PIP_ADAPTER_INFO adapter = adapterInfo;
+            while (adapter) {
+                // Проверяем активные адаптеры
+                if (adapter->DhcpEnabled == 0) {
+                    // Здесь нужна более детальная проверка DNS через реестр
+                    free(adapterInfo);
+                    return CheckDNSInRegistry(adapter->AdapterName);
+                }
+                adapter = adapter->Next;
+            }
+        }
+
+        free(adapterInfo);
+        return false;
+    }
+
+    // Устанавливает Google DNS (8.8.8.8 и 8.8.4.4)
+    static bool SetGoogleDNS() {
+        // Получаем активный сетевой адаптер
+        String adapterName = GetActiveAdapterName();
+        if (adapterName.IsEmpty()) {
+            return false;
+        }
+
+        // Команда для установки DNS через netsh
+        String cmd1 = "netsh interface ip set dns \"" + adapterName + "\" static 8.8.8.8 primary";
+        String cmd2 = "netsh interface ip add dns \"" + adapterName + "\" 8.8.4.4 index=2";
+
+        // Выполняем с правами администратора
+        SHELLEXECUTEINFO sei = {0};
+        sei.cbSize = sizeof(SHELLEXECUTEINFO);
+        sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+        sei.lpVerb = L"runas";
+        sei.lpFile = L"cmd.exe";
+        String params = "/c " + cmd1 + " && " + cmd2;
+        sei.lpParameters = params.c_str();
+        sei.nShow = SW_HIDE;
+
+        if (ShellExecuteEx(&sei)) {
+            if (sei.hProcess) {
+                WaitForSingleObject(sei.hProcess, INFINITE);
+                CloseHandle(sei.hProcess);
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+private:
+    static String GetActiveAdapterName() {
+        ULONG bufferSize = 15000;
+        PIP_ADAPTER_INFO adapterInfo = (PIP_ADAPTER_INFO)malloc(bufferSize);
+        String result = "";
+
+        if (GetAdaptersInfo(adapterInfo, &bufferSize) == ERROR_SUCCESS) {
+            PIP_ADAPTER_INFO adapter = adapterInfo;
+            while (adapter) {
+                // Ищем активный Ethernet или Wi-Fi адаптер
+                if (adapter->Type == MIB_IF_TYPE_ETHERNET ||
+                    adapter->Type == IF_TYPE_IEEE80211) {
+                    // Конвертируем имя адаптера
+                    result = String(adapter->Description);
+                    break;
+                }
+                adapter = adapter->Next;
+            }
+        }
+
+        free(adapterInfo);
+        return result;
+    }
+
+    static bool CheckDNSInRegistry(const char* adapterName) {
+        // Упрощенная проверка - можно расширить через реестр
+        // Для полной проверки нужно читать:
+        // HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{GUID}
+        return false; // Заглушка - реализуйте при необходимости
+    }
+};
+
+//---------------------------------------------------------------------------
+#endif

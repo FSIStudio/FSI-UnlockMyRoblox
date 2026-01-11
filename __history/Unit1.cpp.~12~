@@ -1,0 +1,464 @@
+//---------------------------------------------------------------------------
+#include <vcl.h>
+#pragma hdrstop
+
+#include "Unit1.h"
+//---------------------------------------------------------------------------
+#pragma package(smart_init)
+#pragma resource "*.dfm"
+TMainForm *MainForm;
+
+//---------------------------------------------------------------------------
+__fastcall TMainForm::TMainForm(TComponent* Owner) : TForm(Owner)
+{
+	// Инициализация будет в FormCreate
+}
+//---------------------------------------------------------------------------
+__fastcall TMainForm::~TMainForm()
+{
+	if (processManager) {
+		processManager->Stop();
+	}
+	delete methodManager;
+	delete processManager;
+	delete configManager;
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::FormCreate(TObject *Sender)
+{
+	// Получаем путь приложения
+	appPath = ExtractFilePath(Application->ExeName);
+	dataPath = appPath + "Data\\";
+
+	// Создаем папку Data если её нет
+	if (!DirectoryExists(dataPath)) {
+		CreateDir(dataPath);
+	}
+
+	// Создаем менеджеры
+	methodManager = new MethodManager(appPath);
+	processManager = new ProcessManager(dataPath);
+	configManager = new ConfigManager(dataPath);
+
+	isMethodRunning = false;
+	searchIndex = 0;
+
+	// Настраиваем таймеры
+	StatusCheckTimer->Interval = 60000; // 1 минута
+	StatusCheckTimer->Enabled = true;
+	SearchTimer->Enabled = false;
+	SearchTimer->Interval = 5000; // 5 секунд на тест каждого метода
+
+	// ВАЖНО: Связываем PopupMenu с TrayIcon
+	TrayIcon->PopupMenu = TrayMenu;
+	TrayIcon->Visible = false;
+	TrayIcon->Hint = "FSI UnlockMyRoblox";
+
+	// Заполняем список методов
+	PopulateMethodsList();
+
+	// Загружаем конфигурацию
+	LoadConfiguration();
+
+	// ВАЖНО: Инициализируем все статусы
+	UpdateStatusLabel();
+	UpdateDNSLabel();
+	UpdateRobloxLabel();
+	UpdateUI();
+
+	// Проверяем параметры командной строки (для автозапуска)
+	if (ParamCount() > 0) {
+		String param = ParamStr(1);
+		if (param.LowerCase() == "/minimized") {
+			// Запуск в трее
+			Application->ShowMainForm = false;
+			TrayIcon->Visible = true;
+			// Запускаем метод если включен автостарт
+			if (config.Autostart) {
+				Sleep(2000); // Даем время на загрузку системы
+				StartMethodInternal();
+			}
+		}
+	}
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::FormClose(TObject *Sender, TCloseAction &Action)
+{
+	// Сворачиваем в трей вместо закрытия
+	Action = caNone;
+	Hide();
+	TrayIcon->Visible = true;
+	ShowTrayNotification("FSI UnlockMyRoblox", "Программа свернута в трей");
+}
+//---------------------------------------------------------------------------
+void TMainForm::LoadConfiguration()
+{
+	config = configManager->LoadConfig();
+
+	// Применяем настройки к UI
+	ManualMethodSelection->Checked = config.ManualMethodSelection;
+	HideCMD->Checked = config.HideCMD;
+
+	// ВАЖНО: Читаем автозапуск из РЕЕСТРА, а не из INI
+	bool autostartInRegistry = configManager->CheckAutostartInRegistry();
+	bool trayAutostartInRegistry = configManager->CheckTrayAutostartInRegistry();
+
+	Autostart->Checked = autostartInRegistry;
+	TrayAutostart->Checked = trayAutostartInRegistry;
+
+	// Обновляем конфиг чтобы синхронизировать с реестром
+	config.Autostart = autostartInRegistry;
+	config.TrayAutostart = trayAutostartInRegistry;
+
+	// Устанавливаем выбранный метод
+	methodManager->SetCurrentMethod(config.SelectedMethod);
+
+	// Находим и выбираем в списке
+	for (int i = 0; i < ManualMethods->Items->Count; i++) {
+		if (ManualMethods->Items->Strings[i] == config.SelectedMethod) {
+			ManualMethods->ItemIndex = i;
+			break;
+		}
+	}
+
+	UpdateMethodLabel();
+	UpdateUI();
+}
+//---------------------------------------------------------------------------
+void TMainForm::SaveConfiguration()
+{
+	config.SelectedMethod = methodManager->GetCurrentMethod();
+	config.ManualMethodSelection = ManualMethodSelection->Checked;
+	config.Autostart = Autostart->Checked;
+	config.TrayAutostart = TrayAutostart->Checked;
+
+	configManager->SaveConfig(config);
+
+	// Принудительно сохраняем
+	configManager->iniFile->UpdateFile();
+}
+//---------------------------------------------------------------------------
+void TMainForm::PopulateMethodsList()
+{
+	ManualMethods->Clear();
+	std::vector<String> methods = methodManager->GetAllMethods();
+
+	for (const String& method : methods) {
+		ManualMethods->Items->Add(method);
+	}
+
+	// Выбираем первый по умолчанию
+	if (ManualMethods->Items->Count > 0) {
+		ManualMethods->ItemIndex = 0;
+	}
+}
+//---------------------------------------------------------------------------
+void TMainForm::UpdateUI()
+{
+	bool isSearching = SearchTimer->Enabled;
+	bool manualSelection = ManualMethodSelection->Checked;
+
+	// ВАЖНО: Блокируем ВСЕ элементы во время поиска или работы метода
+	ManualMethodSelection->Enabled = !isSearching && !isMethodRunning;
+	FindOptimalMethod->Enabled = !isSearching && !manualSelection && !isMethodRunning;
+	StartMethod->Enabled = !isSearching;
+	ManualMethods->Enabled = manualSelection && !isSearching && !isMethodRunning;
+	Autostart->Enabled = !isSearching && !isMethodRunning;
+	TrayAutostart->Enabled = !isSearching && !isMethodRunning && Autostart->Checked;
+	HideCMD->Enabled = !isSearching && !isMethodRunning;
+
+	// Обновляем кнопку Start/Stop
+	if (isMethodRunning) {
+		StartMethod->Caption = "Остановить";
+	} else {
+		StartMethod->Caption = "Запустить";
+	}
+
+	// Обновляем меню трея
+	TrayStartMethod->Enabled = !isMethodRunning && !isSearching;
+	TrayStopMethod->Enabled = isMethodRunning;
+}
+//---------------------------------------------------------------------------
+void TMainForm::UpdateMethodLabel()
+{
+	SelectedMethod->Caption = "Выбран метод: " + methodManager->GetCurrentMethod();
+}
+//---------------------------------------------------------------------------
+void TMainForm::UpdateStatusLabel()
+{
+	if (isMethodRunning) {
+		MethodStatus->Caption = "Статус: Запущен";
+		MethodStatus->Font->Color = clGreen;
+	} else {
+		MethodStatus->Caption = "Статус: Не запущен";
+		MethodStatus->Font->Color = clRed;
+	}
+}
+//---------------------------------------------------------------------------
+void TMainForm::UpdateDNSLabel()
+{
+	bool isDNSSet = DNSManager::IsGoogleDNSSet();
+
+	if (isDNSSet) {
+		GoogleDNSCheck->Caption = "Выставлен ли DNS (Google): Да";
+		GoogleDNSCheck->Font->Color = clGreen;
+	} else {
+		GoogleDNSCheck->Caption = "Выставлен ли DNS (Google): Нет";
+		GoogleDNSCheck->Font->Color = clRed;
+	}
+}
+//---------------------------------------------------------------------------
+void TMainForm::UpdateRobloxLabel()
+{
+	bool isWorking = methodManager->CheckRobloxConnection();
+
+	if (isWorking) {
+		RobloxWorkCheck->Caption = "Работает ли Roblox: Да";
+		RobloxWorkCheck->Font->Color = clGreen;
+	} else {
+		RobloxWorkCheck->Caption = "Работает ли Roblox: Нет";
+		RobloxWorkCheck->Font->Color = clRed;
+	}
+}
+//---------------------------------------------------------------------------
+void TMainForm::StartMethodInternal()
+{
+	// Устанавливаем Google DNS
+	DNSManager::SetGoogleDNS();
+	Sleep(1000);
+
+	// Получаем команду для текущего метода
+	String cmd = methodManager->GetCommandLine(methodManager->GetCurrentMethod());
+
+	if (cmd.IsEmpty()) {
+		ShowMessage("Ошибка: метод не найден!");
+		return;
+	}
+
+	// Добавляем cmd.exe /c в начало для корректного запуска
+	String fullCmd = "cmd.exe /c \"" + cmd + "\"";
+
+	// Запускаем процесс с учетом галочки HideCMD
+	if (processManager->Start(fullCmd, HideCMD->Checked)) {
+		Sleep(2000); // Даем время на запуск
+		isMethodRunning = true;
+		UpdateStatusLabel();
+		UpdateDNSLabel();
+		UpdateUI();
+
+		// Windows уведомление
+		String methodName = methodManager->GetCurrentMethod();
+		ShowTrayNotification("Метод запущен", "Метод \"" + methodName + "\" успешно запущен!");
+
+		// Показываем обычное сообщение только если окно видимо
+		if (Visible) {
+			ShowMessage("Метод \"" + methodName + "\" успешно запущен!");
+		}
+	} else {
+		ShowMessage("Ошибка запуска метода! Проверьте:\n1. Запущена ли программа от администратора\n2. Существуют ли файлы в папке Data\\bin\n3. Правильно ли указаны пути");
+	}
+}
+//---------------------------------------------------------------------------
+void TMainForm::StopMethodInternal()
+{
+	if (processManager->Stop()) {
+		isMethodRunning = false;
+		UpdateStatusLabel();
+		UpdateUI();
+
+		// Windows уведомление
+		ShowTrayNotification("Метод остановлен", "Метод был успешно остановлен");
+
+		// Показываем обычное сообщение только если окно видимо
+		if (Visible) {
+			ShowMessage("Метод остановлен");
+		}
+	} else {
+		ShowMessage("Ошибка остановки метода");
+	}
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::FindOptimalMethodClick(TObject *Sender)
+{
+	// Начинаем поиск оптимального метода
+	searchMethods = methodManager->GetAllMethods();
+	searchIndex = 0;
+
+	FindMethodProgress->Position = 0;
+	FindMethodProgress->Max = 100;
+
+	SearchTimer->Enabled = true;
+	UpdateUI(); // Блокируем интерфейс
+
+	ShowMessage("Начат поиск оптимального метода. Это может занять некоторое время...");
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::ManualMethodSelectionClick(TObject *Sender)
+{
+	if (ManualMethodSelection->Checked) {
+		// Включен ручной выбор
+		// Сбрасываем на основной метод если ничего не было выбрано
+		if (ManualMethods->ItemIndex < 0 && ManualMethods->Items->Count > 0) {
+			ManualMethods->ItemIndex = 0;
+			String selectedMethod = ManualMethods->Items->Strings[0];
+			methodManager->SetCurrentMethod(selectedMethod);
+		}
+	}
+
+	UpdateUI();
+	UpdateMethodLabel();
+	SaveConfiguration();
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::ManualMethodsClick(TObject *Sender)
+{
+	if (ManualMethods->ItemIndex >= 0) {
+		String selectedMethod = ManualMethods->Items->Strings[ManualMethods->ItemIndex];
+		methodManager->SetCurrentMethod(selectedMethod);
+		UpdateMethodLabel();
+
+		// ВАЖНО: Немедленное сохранение
+		config.SelectedMethod = selectedMethod;
+		configManager->SaveConfig(config);
+	}
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::StartMethodClick(TObject *Sender)
+{
+	if (isMethodRunning) {
+		StopMethodInternal();
+	} else {
+		StartMethodInternal();
+	}
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::AutostartClick(TObject *Sender)
+{
+	configManager->SetAutostart(Autostart->Checked, TrayAutostart->Checked);
+	UpdateUI();
+	SaveConfiguration();
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::TrayAutostartClick(TObject *Sender)
+{
+	if (Autostart->Checked) {
+		configManager->SetAutostart(true, TrayAutostart->Checked);
+	}
+	SaveConfiguration();
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::StatusCheckTimerTimer(TObject *Sender)
+{
+	// Каждую минуту проверяем статусы
+	UpdateDNSLabel();
+	UpdateRobloxLabel();
+
+	// Проверяем жив ли процесс
+	if (isMethodRunning && !processManager->IsRunning()) {
+		isMethodRunning = false;
+		UpdateStatusLabel();
+		UpdateUI();
+	}
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::SearchTimerTimer(TObject *Sender)
+{
+	if (searchIndex >= searchMethods.size()) {
+		// Поиск завершен
+		SearchTimer->Enabled = false;
+		FindMethodProgress->Position = 100;
+		UpdateUI(); // Разблокируем интерфейс
+
+		if (methodManager->CheckRobloxConnection()) {
+			ShowMessage("Поиск завершен! Найден рабочий метод: " +
+				methodManager->GetCurrentMethod());
+		} else {
+			ShowMessage("Поиск завершен. К сожалению, ни один метод не сработал. "
+				"Попробуйте запустить программу с правами администратора или проверьте подключение к интернету.");
+		}
+
+		UpdateMethodLabel();
+		SaveConfiguration();
+		return;
+	}
+
+	// Тестируем текущий метод
+	String currentMethod = searchMethods[searchIndex];
+	methodManager->SetCurrentMethod(currentMethod);
+
+	// Останавливаем предыдущий
+	if (processManager->IsRunning()) {
+		processManager->Stop();
+		Sleep(1000);
+	}
+
+	// Запускаем текущий
+	String cmd = methodManager->GetCommandLine(currentMethod);
+	if (!cmd.IsEmpty()) {
+		String fullCmd = "cmd.exe /c \"" + cmd + "\"";
+		processManager->Start(fullCmd);
+		Sleep(3000); // Даем время на запуск
+
+		// Проверяем работает ли Roblox
+		if (methodManager->CheckRobloxConnection()) {
+			// Успех! Останавливаем поиск
+			processManager->Stop();
+			SearchTimer->Enabled = false;
+			FindMethodProgress->Position = 100;
+			UpdateUI(); // Разблокируем интерфейс
+
+			ShowMessage("Найден рабочий метод: " + currentMethod);
+			UpdateMethodLabel();
+			SaveConfiguration();
+			return;
+		}
+	}
+
+	// Переходим к следующему методу
+	searchIndex++;
+	FindMethodProgress->Position = (searchIndex * 100) / searchMethods.size();
+}
+//---------------------------------------------------------------------------
+// Обработчики трея
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::TrayIconDblClick(TObject *Sender)
+{
+	TrayIcon->Visible = false;
+	Show();
+	Application->BringToFront();
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::TrayOpenClick(TObject *Sender)
+{
+	TrayIconDblClick(Sender);
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::TrayStartMethodClick(TObject *Sender)
+{
+	StartMethodInternal();
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::TrayStopMethodClick(TObject *Sender)
+{
+	StopMethodInternal();
+}
+//---------------------------------------------------------------------------
+void __fastcall TMainForm::TrayExitClick(TObject *Sender)
+{
+	// Действительно закрываем приложение
+	StopMethodInternal();
+	SaveConfiguration();
+	TrayIcon->Visible = false;
+	Application->Terminate();
+}
+//---------------------------------------------------------------------------
+void TMainForm::ShowTrayNotification(const String& title, const String& msg)
+{
+	TrayIcon->BalloonTitle = title;
+	TrayIcon->BalloonHint = msg;
+	TrayIcon->ShowBalloonHint();
+}
+
+void TMainForm::HideCMDClick(TObject *Sender)
+{
+}

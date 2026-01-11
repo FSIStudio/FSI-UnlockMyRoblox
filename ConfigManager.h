@@ -1,0 +1,162 @@
+/*
+
+FSI STUDIO PRODUCT - FSI UnlockMyRoblox V1 - Open-Source
+
+EN:
+!!! Please do not create your own program that exactly compiles 50% the functionality of the FSI UnlockMyRoblox !!!
+Ignoring this message will have consequences!
+OPEN-SOURCE designed for informational purposes only.
+
+RU:
+!!! Пожалуйста, не копируйте 50% функционала FSI UnlockMyRoblox в свой проект/приложение !!!
+Игнорирование данного сообщения приведет к последствиям!
+OPEN-SOURCE расчитан для ознакомления.
+
+*/
+
+//---------------------------------------------------------------------------
+#ifndef ConfigManagerH
+#define ConfigManagerH
+//---------------------------------------------------------------------------
+#include <System.hpp>
+#include <IniFiles.hpp>
+#include <Registry.hpp>
+
+struct AppConfig {
+    String SelectedMethod;
+    bool ManualMethodSelection;
+    bool Autostart;
+    bool TrayAutostart;
+    bool HideCMD;
+
+    AppConfig() {
+        SelectedMethod = "ОСНОВНОЙ";
+        ManualMethodSelection = false;
+        Autostart = false;
+		TrayAutostart = false;
+		HideCMD = true;
+    }
+};
+
+class ConfigManager {
+private:
+    String configPath;
+
+public:
+	TIniFile* iniFile;
+
+    ConfigManager(const String& dataPath) {
+        configPath = dataPath + "AppConfig.ini";
+        iniFile = new TIniFile(configPath);
+    }
+
+    ~ConfigManager() {
+        if (iniFile) {
+			iniFile->UpdateFile();
+            delete iniFile;
+        }
+    }
+
+	void SaveConfig(const AppConfig& config) {
+        iniFile->EraseSection("Settings");
+
+        iniFile->WriteString("Settings", "SelectedMethod", config.SelectedMethod);
+        iniFile->WriteBool("Settings", "ManualMethodSelection", config.ManualMethodSelection);
+        iniFile->WriteBool("Settings", "Autostart", config.Autostart);
+        iniFile->WriteBool("Settings", "TrayAutostart", config.TrayAutostart);
+        iniFile->WriteBool("Settings", "HideCMD", config.HideCMD);
+
+        iniFile->UpdateFile();
+    }
+
+    AppConfig LoadConfig() {
+        AppConfig config;
+
+		if (!FileExists(configPath)) {
+            SaveConfig(config);
+            return config;
+        }
+
+        config.SelectedMethod = iniFile->ReadString("Settings", "SelectedMethod", "ОСНОВНОЙ");
+        config.ManualMethodSelection = iniFile->ReadBool("Settings", "ManualMethodSelection", false);
+        config.Autostart = iniFile->ReadBool("Settings", "Autostart", false);
+        config.TrayAutostart = iniFile->ReadBool("Settings", "TrayAutostart", false);
+        config.HideCMD = iniFile->ReadBool("Settings", "HideCMD", true);
+
+        return config;
+    }
+
+    bool CheckAutostartInRegistry() {
+        String appName = "FSI UnlockMyRoblox";
+        TRegistry* reg = new TRegistry();
+        bool result = false;
+
+        try {
+            reg->RootKey = HKEY_CURRENT_USER;
+            if (reg->OpenKeyReadOnly("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run")) {
+                result = reg->ValueExists(appName);
+                reg->CloseKey();
+            }
+        }
+        __finally {
+            delete reg;
+        }
+
+        return result;
+    }
+
+    bool CheckTrayAutostartInRegistry() {
+        String appName = "FSI UnlockMyRoblox";
+        TRegistry* reg = new TRegistry();
+        bool result = false;
+
+        try {
+            reg->RootKey = HKEY_CURRENT_USER;
+            if (reg->OpenKeyReadOnly("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run")) {
+                if (reg->ValueExists(appName)) {
+					String value = reg->ReadString(appName);
+                    result = value.Pos("/minimized") > 0;
+                }
+                reg->CloseKey();
+            }
+        }
+        __finally {
+            delete reg;
+        }
+
+        return result;
+    }
+
+    //FSI STUDIO PRODUCT - FSI UnlockMyRoblox V1 - Open-Source
+
+    void SetAutostart(bool enable, bool minimized = false) {
+        String appPath = ParamStr(0);
+        String appName = "FSI UnlockMyRoblox";
+
+        TRegistry* reg = new TRegistry();
+        try {
+            reg->RootKey = HKEY_CURRENT_USER;
+
+            if (reg->OpenKey("SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run", true)) {
+                if (enable) {
+                    String value = "\"" + appPath + "\"";
+                    if (minimized) {
+                        value += " /minimized";
+                    }
+                    reg->WriteString(appName, value);
+                } else {
+                    if (reg->ValueExists(appName)) {
+                        reg->DeleteValue(appName);
+                    }
+                }
+                reg->CloseKey();
+            }
+        }
+        __finally {
+            delete reg;
+        }
+    }
+};
+
+//---------------------------------------------------------------------------
+#endif

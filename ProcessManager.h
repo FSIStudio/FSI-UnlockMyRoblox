@@ -1,0 +1,182 @@
+/*
+
+FSI STUDIO PRODUCT - FSI UnlockMyRoblox V1 - Open-Source
+
+EN:
+!!! Please do not create your own program that exactly compiles 50% the functionality of the FSI UnlockMyRoblox !!!
+Ignoring this message will have consequences!
+OPEN-SOURCE designed for informational purposes only.
+
+RU:
+!!! Пожалуйста, не копируйте 50% функционала FSI UnlockMyRoblox в свой проект/приложение !!!
+Игнорирование данного сообщения приведет к последствиям!
+OPEN-SOURCE расчитан для ознакомления.
+
+*/
+
+//---------------------------------------------------------------------------
+#ifndef ProcessManagerH
+#define ProcessManagerH
+//---------------------------------------------------------------------------
+#include <System.hpp>
+#include <windows.h>
+#include <tlhelp32.h>
+
+class ProcessManager {
+private:
+    PROCESS_INFORMATION processInfo;
+    bool isRunning;
+    String dataPath;
+
+public:
+    ProcessManager(const String& appDataPath) {
+        ZeroMemory(&processInfo, sizeof(PROCESS_INFORMATION));
+        isRunning = false;
+        dataPath = appDataPath;
+    }
+
+    ~ProcessManager() {
+        Stop();
+    }
+
+    bool Start(const String& commandLine, bool hideConsole = true) {
+        if (isRunning) {
+            return false; // Уже запущен
+        }
+
+        // Убиваем старые процессы winws.exe если есть
+        KillAllWinwsProcesses();
+        Sleep(500);
+
+        STARTUPINFO si;
+        ZeroMemory(&si, sizeof(STARTUPINFO));
+        si.cb = sizeof(STARTUPINFO);
+        si.dwFlags = STARTF_USESHOWWINDOW;
+        si.wShowWindow = hideConsole ? SW_HIDE : SW_SHOW;
+
+        // ВАЖНО: CreateProcess требует изменяемую строку
+        // Выделяем достаточно памяти (максимум 32768 символов)
+        wchar_t* cmdLine = new wchar_t[32768];
+        wcscpy_s(cmdLine, 32768, commandLine.c_str());
+
+        // Рабочая директория - Data\bin
+        String workDir = dataPath + "bin";
+
+        DWORD creationFlags = hideConsole ? (CREATE_NEW_CONSOLE | CREATE_NO_WINDOW) : CREATE_NEW_CONSOLE;
+
+        bool result = CreateProcess(
+            NULL,
+            cmdLine,
+            NULL,
+            NULL,
+            FALSE,
+            creationFlags,
+            NULL,
+            workDir.c_str(),
+            &si,
+            &processInfo
+        );
+
+        delete[] cmdLine;
+
+        if (result) {
+            isRunning = true;
+            return true;
+        }
+
+        return false;
+    }
+
+    bool Stop() {
+        if (!isRunning) {
+            return true;
+        }
+
+        // Убиваем процесс
+        if (processInfo.hProcess) {
+            TerminateProcess(processInfo.hProcess, 0);
+            CloseHandle(processInfo.hProcess);
+            CloseHandle(processInfo.hThread);
+            ZeroMemory(&processInfo, sizeof(PROCESS_INFORMATION));
+        }
+
+        // Дополнительно убиваем все winws.exe
+        KillAllWinwsProcesses();
+
+        isRunning = false;
+        return true;
+    }
+
+    bool IsRunning() {
+        if (!isRunning) {
+            return false;
+        }
+
+        // Проверяем жив ли процесс
+        if (processInfo.hProcess) {
+            DWORD exitCode;
+            if (GetExitCodeProcess(processInfo.hProcess, &exitCode)) {
+                if (exitCode != STILL_ACTIVE) {
+                    isRunning = false;
+                    return false;
+                }
+            }
+        }
+
+        // Дополнительно проверяем есть ли процесс winws.exe
+        return CheckWinwsRunning();
+    }
+
+private:
+    bool CheckWinwsRunning() {
+        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snapshot == INVALID_HANDLE_VALUE) {
+            return false;
+        }
+
+        PROCESSENTRY32 pe;
+        pe.dwSize = sizeof(PROCESSENTRY32);
+        bool found = false;
+
+        if (Process32First(snapshot, &pe)) {
+            do {
+                if (_wcsicmp(pe.szExeFile, L"winws.exe") == 0) {
+                    found = true;
+                    break;
+                }
+            } while (Process32Next(snapshot, &pe));
+        }
+
+		//FSI STUDIO PRODUCT - FSI UnlockMyRoblox V1 - Open-Source
+
+        CloseHandle(snapshot);
+        return found;
+    }
+
+    void KillAllWinwsProcesses() {
+        HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snapshot == INVALID_HANDLE_VALUE) {
+            return;
+        }
+
+        PROCESSENTRY32 pe;
+        pe.dwSize = sizeof(PROCESSENTRY32);
+
+        if (Process32First(snapshot, &pe)) {
+            do {
+                if (_wcsicmp(pe.szExeFile, L"winws.exe") == 0) {
+                    HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, pe.th32ProcessID);
+                    if (hProcess) {
+                        TerminateProcess(hProcess, 0);
+                        CloseHandle(hProcess);
+                    }
+                }
+            } while (Process32Next(snapshot, &pe));
+        }
+
+        CloseHandle(snapshot);
+    }
+};
+
+//---------------------------------------------------------------------------
+#endif

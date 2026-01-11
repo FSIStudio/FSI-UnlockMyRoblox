@@ -1,0 +1,36 @@
+#ifndef ScriptsH
+#define ScriptsH
+
+#include <System.Classes.hpp>
+#include <vector>
+
+// Структура для хранения одного метода
+struct TZapretMethod {
+	UnicodeString Name;    // Название (например, "ALT 1")
+	UnicodeString Params;  // Параметры для winws.exe
+};
+
+// Функция, которая возвращает список всех методов
+std::vector<TZapretMethod> GetZapretMethods() {
+    std::vector<TZapretMethod> methods;
+
+    // Добавляем методы из твоих .bat файлов
+    // В Params пишем всё, что идет после winws.exe в батнике
+
+	methods.push_back({L"ALT (Default)",
+		L"--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443,19294-19344,50000-50100 "
+		L"--filter-udp=443 --hostlist=\"%LISTS%list-ultimate.txt\" --dpi-desync=fake --dpi-desync-repeats=6 --new "
+		L"--filter-tcp=443 --hostlist=\"%LISTS%list-google.txt\" --ip-id=zero --dpi-desync=fake,fakedsplit --new"});
+
+    methods.push_back({L"ALT 10",
+        L"--wf-tcp=80,443,2053,2083,2087,2096,8443 --wf-udp=443 --filter-udp=443 --hostlist=\"%LISTS%list-ultimate.txt\" "
+        L"--dpi-desync=fake --dpi-desync-repeats=6 --new --filter-tcp=443 --hostlist=\"%LISTS%list-google.txt\" "
+        L"--ip-id=zero --dpi-desync=fake --dpi-desync-repeats=6 --dpi-desync-fooling=ts"});
+
+    // Сюда ты можешь дописать остальные 45 методов по аналогии
+    // Просто копируй параметры из своих .bat файлов
+
+    return methods;
+}
+
+#endif

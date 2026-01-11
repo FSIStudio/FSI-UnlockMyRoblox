@@ -1,0 +1,94 @@
+//---------------------------------------------------------------------------
+#ifndef MethodManagerH
+#define MethodManagerH
+//---------------------------------------------------------------------------
+#include <System.hpp>
+#include <Vcl.ExtCtrls.hpp>
+#include <IdHTTP.hpp>
+#include "Scripts.h"
+
+class MethodManager {
+private:
+    ScriptDatabase* scriptDB;
+    String currentMethod;
+    String dataPath;
+    TTimer* checkTimer;
+    bool isSearching;
+    int currentSearchIndex;
+    std::vector<String> methodsToTest;
+
+public:
+    MethodManager(const String& appPath) {
+        scriptDB = new ScriptDatabase();
+        dataPath = appPath + "Data\\";
+        currentMethod = "ОСНОВНОЙ";
+        isSearching = false;
+        currentSearchIndex = 0;
+    }
+
+    ~MethodManager() {
+        delete scriptDB;
+    }
+
+    String GetCurrentMethod() {
+        return currentMethod;
+    }
+
+    void SetCurrentMethod(const String& method) {
+        currentMethod = method;
+    }
+
+    String GetCommandLine(const String& method) {
+        String cmd = scriptDB->GetScript(method);
+        // Заменяем %DATA_PATH% на реальный путь
+        cmd = StringReplace(cmd, "%DATA_PATH%", dataPath, TReplaceFlags() << rfReplaceAll);
+        return cmd;
+    }
+
+    std::vector<String> GetAllMethods() {
+        return scriptDB->GetAllMethodNames();
+    }
+
+    // Проверка работает ли Roblox
+    bool CheckRobloxConnection() {
+        try {
+            TIdHTTP* http = new TIdHTTP(NULL);
+            try {
+                http->ConnectTimeout = 3000;
+                http->ReadTimeout = 3000;
+                http->Head("https://www.roblox.com");
+                delete http;
+                return true;
+            } catch (...) {
+                delete http;
+                return false;
+            }
+        } catch (...) {
+            return false;
+        }
+    }
+
+    // Начать поиск оптимального метода
+    void StartMethodSearch(TNotifyEvent onProgress, TNotifyEvent onComplete) {
+        isSearching = true;
+        currentSearchIndex = 0;
+        methodsToTest = GetAllMethods();
+        // Запускаем асинхронный поиск
+    }
+
+    void StopMethodSearch() {
+        isSearching = false;
+    }
+
+    bool IsSearching() {
+        return isSearching;
+    }
+
+    int GetSearchProgress() {
+        if (methodsToTest.empty()) return 0;
+        return (currentSearchIndex * 100) / methodsToTest.size();
+    }
+};
+
+//---------------------------------------------------------------------------
+#endif

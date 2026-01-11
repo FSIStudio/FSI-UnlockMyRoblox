@@ -1,0 +1,102 @@
+//---------------------------------------------------------------------------
+
+#ifndef Unit1H
+#define Unit1H
+//---------------------------------------------------------------------------
+#include <System.Classes.hpp>
+#include <Vcl.Controls.hpp>
+#include <Vcl.StdCtrls.hpp>
+#include <Vcl.Forms.hpp>
+#include <Vcl.ExtCtrls.hpp>
+#include <Vcl.Imaging.pngimage.hpp>
+#include <Vcl.ComCtrls.hpp>
+#include <IdBaseComponent.hpp>
+#include <IdComponent.hpp>
+#include <IdHTTP.hpp>
+#include <IdTCPClient.hpp>
+#include <IdTCPConnection.hpp>
+#include <Vcl.Menus.hpp>
+#include "MethodManager.h"
+#include "DNSManager.h"
+#include "ProcessManager.h"
+#include "ConfigManager.h"
+//---------------------------------------------------------------------------
+class TMainForm : public TForm
+{
+__published:	// IDE-managed Components
+	TImage *RobloxLogo;
+	TImage *FSILogo;
+	TLabel *Title;
+	TLabel *Description;
+	TButton *FindOptimalMethod;
+	TCheckBox *ManualMethodSelection;
+	TListBox *ManualMethods;
+	TLabel *SelectedMethod;
+	TLabel *MethodStatus;
+	TLabel *GoogleDNSCheck;
+	TLabel *RobloxWorkCheck;
+	TButton *StartMethod;
+	TCheckBox *Autostart;
+	TCheckBox *TrayAutostart;
+	TLabel *VerInfo;
+	TProgressBar *FindMethodProgress;
+	TIdHTTP *IdHTTP1;
+	TTrayIcon *TrayIcon;
+	TTimer *SearchTimer;
+	TPopupMenu *TrayMenu;
+	TTimer *StatusCheckTimer;
+	TMenuItem *TrayOpen;
+	TMenuItem *TrayStartMethod;
+	TMenuItem *TrayStopMethod;
+	TMenuItem *TrayExit;
+	TMenuItem *N1;
+	TMenuItem *N2;
+	TMenuItem *fsistudioru1;
+	TCheckBox *HideCMD;
+	void __fastcall FindOptimalMethodClick(TObject *Sender);
+	void __fastcall ManualMethodSelectionClick(TObject *Sender);
+	void __fastcall ManualMethodsClick(TObject *Sender);
+	void __fastcall AutostartClick(TObject *Sender);
+	void __fastcall TrayAutostartClick(TObject *Sender);
+	void __fastcall StartMethodClick(TObject *Sender);
+	void __fastcall TrayOpenClick(TObject *Sender);
+	void __fastcall TrayStartMethodClick(TObject *Sender);
+	void __fastcall TrayStopMethodClick(TObject *Sender);
+	void __fastcall TrayExitClick(TObject *Sender);
+	void __fastcall SearchTimerTimer(TObject *Sender);
+	void __fastcall StatusCheckTimerTimer(TObject *Sender);
+	void __fastcall TrayIconDblClick(TObject *Sender);
+	void __fastcall FormCreate(TObject *Sender);
+	void __fastcall FormClose(TObject *Sender, TCloseAction &Action);
+	void __fastcall HideCMDClick(TObject *Sender);
+private:	// User declarations
+	MethodManager* methodManager;
+	ProcessManager* processManager;
+	ConfigManager* configManager;
+	AppConfig config;
+	String appPath;
+	String dataPath;
+	bool isMethodRunning;
+	int searchIndex;
+	std::vector<String> searchMethods;
+
+	void LoadConfiguration();
+	void SaveConfiguration();
+	void UpdateUI();
+	void UpdateMethodLabel();
+	void UpdateStatusLabel();
+	void UpdateDNSLabel();
+	void UpdateRobloxLabel();
+	void StartMethodInternal();
+	void StopMethodInternal();
+	void PopulateMethodsList();
+	void ShowTrayNotification(const String& title, const String& msg);
+
+public:		// User declarations
+	__fastcall TMainForm(TComponent* Owner);
+	__fastcall ~TMainForm();
+};
+//---------------------------------------------------------------------------
+extern PACKAGE TMainForm *MainForm;
+//---------------------------------------------------------------------------
+#endif

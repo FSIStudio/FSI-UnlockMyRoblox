@@ -1,0 +1,144 @@
+/*
+
+FSI STUDIO PRODUCT - FSI UnlockMyRoblox V1 - Open-Source
+
+EN:
+!!! Please do not create your own program that exactly compiles 50% the functionality of the FSI UnlockMyRoblox !!!
+Ignoring this message will have consequences!
+OPEN-SOURCE designed for informational purposes only.
+
+RU:
+!!! Пожалуйста, не копируйте 50% функционала FSI UnlockMyRoblox в свой проект/приложение !!!
+Игнорирование данного сообщения приведет к последствиям!
+OPEN-SOURCE расчитан для ознакомления.
+
+*/
+
+//---------------------------------------------------------------------------
+#ifndef MethodManagerH
+#define MethodManagerH
+//---------------------------------------------------------------------------
+#include <System.hpp>
+#include <Vcl.ExtCtrls.hpp>
+#include <windows.h>
+#include <wininet.h>
+#include "Scripts.h"
+
+#pragma comment(lib, "wininet.lib")
+
+class MethodManager {
+private:
+    ScriptDatabase* scriptDB;
+    String currentMethod;
+    String dataPath;
+    TTimer* checkTimer;
+    bool isSearching;
+    int currentSearchIndex;
+    std::vector<String> methodsToTest;
+
+public:
+    MethodManager(const String& appPath) {
+        scriptDB = new ScriptDatabase();
+        dataPath = appPath + "Data\\";
+        currentMethod = "ОСНОВНОЙ";
+        isSearching = false;
+        currentSearchIndex = 0;
+    }
+
+    ~MethodManager() {
+        delete scriptDB;
+    }
+
+    String GetCurrentMethod() {
+        return currentMethod;
+    }
+
+    void SetCurrentMethod(const String& method) {
+        currentMethod = method;
+    }
+
+    String GetCommandLine(const String& method) {
+		String cmd = scriptDB->GetScript(method);
+		cmd = StringReplace(cmd, "%DATA_PATH%", dataPath, TReplaceFlags() << rfReplaceAll);
+		return cmd;
+    }
+
+    std::vector<String> GetAllMethods() {
+        return scriptDB->GetAllMethodNames();
+    }
+
+	bool CheckRobloxConnection() {
+		HINTERNET hInternet = NULL;
+        HINTERNET hConnect = NULL;
+        bool result = false;
+
+		try {
+            hInternet = InternetOpen(
+                L"FSI UnlockMyRoblox",
+                INTERNET_OPEN_TYPE_DIRECT,
+                NULL,
+                NULL,
+                0
+            );
+
+			if (hInternet) {
+                hConnect = InternetOpenUrl(
+                    hInternet,
+                    L"https://www.roblox.com",
+                    NULL,
+                    0,
+                    INTERNET_FLAG_NO_CACHE_WRITE | INTERNET_FLAG_RELOAD | INTERNET_FLAG_SECURE,
+                    0
+                );
+
+				if (hConnect) {
+					DWORD statusCode = 0;
+                    DWORD statusCodeSize = sizeof(statusCode);
+
+                    if (HttpQueryInfo(
+                        hConnect,
+                        HTTP_QUERY_STATUS_CODE | HTTP_QUERY_FLAG_NUMBER,
+                        &statusCode,
+                        &statusCodeSize,
+                        NULL
+					)) {
+                        result = (statusCode >= 200 && statusCode < 400);
+                    }
+
+                    InternetCloseHandle(hConnect);
+                }
+
+                InternetCloseHandle(hInternet);
+            }
+        }
+        catch (...) {
+            result = false;
+        }
+
+        //FSI STUDIO PRODUCT - FSI UnlockMyRoblox V1 - Open-Source
+
+        return result;
+    }
+
+    void StartMethodSearch(TNotifyEvent onProgress, TNotifyEvent onComplete) {
+        isSearching = true;
+        currentSearchIndex = 0;
+		methodsToTest = GetAllMethods();
+    }
+
+    void StopMethodSearch() {
+        isSearching = false;
+    }
+
+    bool IsSearching() {
+        return isSearching;
+    }
+
+    int GetSearchProgress() {
+        if (methodsToTest.empty()) return 0;
+        return (currentSearchIndex * 100) / methodsToTest.size();
+    }
+};
+
+//---------------------------------------------------------------------------
+#endif
